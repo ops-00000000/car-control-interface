@@ -1,3 +1,4 @@
+// ControlPanel.jsx
 import React, { useState, useEffect } from 'react';
 import {
     Box,
@@ -25,13 +26,17 @@ import {
     SettingsInputHdmi as PortIcon,
     Brightness4 as Brightness4Icon,
     Brightness7 as Brightness7Icon,
+    CheckCircle as CheckCircleIcon,
+    Error as ErrorIcon,
+    HourglassEmpty as HourglassEmptyIcon,
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useWebSocketClient } from './useWebSocketClient';
+import { useKeycloak } from '@react-keycloak/web';
 
-
-function ControlPanel() {
+function ControlPanel({ darkMode, toggleDarkMode }) {
     // Состояния компонента
     const [port, setPort] = useState(localStorage.getItem('selectedPort') || '');
     const [command, setCommand] = useState('');
@@ -40,25 +45,24 @@ function ControlPanel() {
     const [isLoading, setIsLoading] = useState(false);
     const [snackbarOpen, setSnackbarOpen] = useState(false);
     const [commandError, setCommandError] = useState(false);
-    const [darkMode, setDarkMode] = useState(false);
+    const [portStatus, setPortStatus] = useState('idle'); // 'idle', 'connecting', 'error', 'ready'
+    const [cameraEnabled, setCameraEnabled] = useState(false); // Новое состояние для камер
 
     const theme = useTheme();
 
-    // Переключение темы
-    const toggleDarkMode = () => {
-        setDarkMode(!darkMode);
-    };
+    // Использование WebSocket клиента
+    const { messages, sendMessage, status: wsStatus } = useWebSocketClient('ws://127.0.0.1:9090');
 
-    // Обновление темы при переключении режима
-    useEffect(() => {
-        theme.palette.mode = darkMode ? 'dark' : 'light';
-    }, [darkMode, theme.palette]);
+    // Использование Keycloak
+    const { keycloak } = useKeycloak();
 
     // Обработка изменения порта
     const handlePortChange = (event) => {
         const selectedPort = event.target.value;
         setPort(selectedPort);
         localStorage.setItem('selectedPort', selectedPort);
+        // Сброс состояния порта при изменении
+        setPortStatus('idle');
     };
 
     // Обработка отправки команды
@@ -69,12 +73,13 @@ function ControlPanel() {
         }
         setCommandError(false);
         setIsLoading(true);
-        // Имитация отправки команды
-        setTimeout(() => {
-            setResponse(`Ответ на команду: ${command}`);
-            setIsLoading(false);
-            setSnackbarOpen(true);
-        }, 2000);
+        // Отправка команды через WebSocket
+        sendMessage(command);
+        // Очистка поля ввода и обновление состояния
+        setCommand('');
+        setIsLoading(false);
+        setResponse('Команда отправлена');
+        setSnackbarOpen(true);
     };
 
     // Обработка изменения команды
@@ -85,7 +90,56 @@ function ControlPanel() {
 
     // Обработка клика по камере
     const handleCameraClick = (cam) => {
+        if (!cameraEnabled) return; // Камеры отключены по умолчанию
         setSelectedCamera(selectedCamera === cam ? null : cam);
+    };
+
+    // Обработка подключения к порту
+    const handleConnectPort = () => {
+        if (!port) return;
+        setPortStatus('connecting');
+
+        // Имитация процесса подключения с таймаутом 2 минуты
+        const connectTimeout = setTimeout(() => {
+            setPortStatus('error');
+            setSnackbarOpen(true);
+        }, 120000); // 2 минуты
+
+        // Имитация успешного подключения через 5 секунд
+        const successTimeout = setTimeout(() => {
+            clearTimeout(connectTimeout);
+            setPortStatus('ready');
+            setSnackbarOpen(true);
+            setCameraEnabled(true); // Включение камер после успешного подключения
+        }, 5000);
+
+        // Очистка таймаутов при размонтировании или изменении порта
+        return () => {
+            clearTimeout(connectTimeout);
+            clearTimeout(successTimeout);
+        };
+    };
+
+    // Автоматическое подключение при выборе порта
+    useEffect(() => {
+        if (port) {
+            handleConnectPort();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [port]);
+
+    // Обработка сообщений WebSocket
+    useEffect(() => {
+        if (messages.length > 0) {
+            // Здесь вы можете обработать полученные сообщения
+            setResponse(`Ответ от машины: ${messages[messages.length - 1]}`);
+            setSnackbarOpen(true);
+        }
+    }, [messages]);
+
+    // Обработка выхода из системы
+    const handleLogout = () => {
+        keycloak.logout();
     };
 
     const cameraList = ['Front', 'Left', 'Back', 'Right'];
@@ -101,11 +155,7 @@ function ControlPanel() {
                     {/* Переключатель темы */}
                     <Tooltip title="Переключить тему">
                         <IconButton onClick={toggleDarkMode} color="inherit">
-                            {theme.palette.mode === 'dark' ? (
-                                <Brightness7Icon />
-                            ) : (
-                                <Brightness4Icon />
-                            )}
+                            {darkMode ? <Brightness7Icon /> : <Brightness4Icon />}
                         </IconButton>
                     </Tooltip>
                     <Tooltip title="Переподключиться">
@@ -114,6 +164,7 @@ function ControlPanel() {
                             color="secondary"
                             startIcon={<RefreshIcon />}
                             sx={{ mr: 2 }}
+                            onClick={() => window.location.reload()}
                         >
                             Переподключиться
                         </Button>
@@ -123,6 +174,7 @@ function ControlPanel() {
                             variant="contained"
                             color="error"
                             startIcon={<PowerOffIcon />}
+                            onClick={handleLogout} // Используем функцию выхода
                         >
                             Отключиться
                         </Button>
@@ -148,37 +200,42 @@ function ControlPanel() {
                                                 .filter((cam) => cam !== selectedCamera)
                                                 .map((cam) => (
                                                     <Grid item xs={4} key={cam}>
-                                                        <Box
-                                                            onClick={() => handleCameraClick(cam)}
-                                                            sx={{
-                                                                position: 'relative',
-                                                                overflow: 'hidden',
-                                                                borderRadius: 2,
-                                                                cursor: 'pointer',
-                                                                '&:hover': {
-                                                                    boxShadow: 6,
-                                                                    transform: 'scale(1.02)',
-                                                                    transition: 'all 0.3s ease-in-out',
-                                                                },
-                                                                transition: 'all 0.3s ease-in-out',
-                                                            }}
-                                                        >
+                                                        <Tooltip title={`Открыть Камеру ${cam}`}>
                                                             <Box
+                                                                onClick={() => handleCameraClick(cam)}
                                                                 sx={{
-                                                                    backgroundColor: '#1e1e1e',
-                                                                    height: 80,
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    color: '#fff',
+                                                                    position: 'relative',
+                                                                    overflow: 'hidden',
                                                                     borderRadius: 2,
-                                                                    boxShadow: 3,
+                                                                    cursor: cameraEnabled ? 'pointer' : 'not-allowed',
+                                                                    opacity: cameraEnabled ? 1 : 0.5,
+                                                                    '&:hover': cameraEnabled
+                                                                        ? {
+                                                                            boxShadow: 6,
+                                                                            transform: 'scale(1.02)',
+                                                                            transition: 'all 0.3s ease-in-out',
+                                                                        }
+                                                                        : {},
                                                                     transition: 'all 0.3s ease-in-out',
                                                                 }}
                                                             >
-                                                                {`Камера ${cam}`}
+                                                                <Box
+                                                                    sx={{
+                                                                        backgroundColor: '#1e1e1e',
+                                                                        height: 80,
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        color: '#fff',
+                                                                        borderRadius: 2,
+                                                                        boxShadow: 3,
+                                                                        transition: 'all 0.3s ease-in-out',
+                                                                    }}
+                                                                >
+                                                                    {`Камера ${cam}`}
+                                                                </Box>
                                                             </Box>
-                                                        </Box>
+                                                        </Tooltip>
                                                     </Grid>
                                                 ))}
                                         </Grid>
@@ -189,68 +246,78 @@ function ControlPanel() {
                                                 position: 'relative',
                                                 overflow: 'hidden',
                                                 borderRadius: 2,
-                                                cursor: 'pointer',
+                                                cursor: cameraEnabled ? 'pointer' : 'not-allowed',
+                                                opacity: cameraEnabled ? 1 : 0.5,
                                                 mt: 1,
-                                                '&:hover': {
-                                                    boxShadow: 6,
-                                                    transform: 'scale(1.01)',
-                                                    transition: 'all 0.3s ease-in-out',
-                                                },
+                                                '&:hover': cameraEnabled
+                                                    ? {
+                                                        boxShadow: 6,
+                                                        transform: 'scale(1.01)',
+                                                        transition: 'all 0.3s ease-in-out',
+                                                    }
+                                                    : {},
                                                 transition: 'all 0.3s ease-in-out',
                                             }}
                                         >
-                                            <Box
-                                                sx={{
-                                                    backgroundColor: '#1e1e1e',
-                                                    height: 320,
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    color: '#fff',
-                                                    borderRadius: 2,
-                                                    boxShadow: 3,
-                                                    transition: 'all 0.3s ease-in-out',
-                                                }}
-                                            >
-                                                {`Камера ${selectedCamera}`}
-                                            </Box>
+                                            <Tooltip title={`Закрыть Камеру ${selectedCamera}`}>
+                                                <Box
+                                                    sx={{
+                                                        backgroundColor: '#1e1e1e',
+                                                        height: 320,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: '#fff',
+                                                        borderRadius: 2,
+                                                        boxShadow: 3,
+                                                        transition: 'all 0.3s ease-in-out',
+                                                    }}
+                                                >
+                                                    {`Камера ${selectedCamera}`}
+                                                </Box>
+                                            </Tooltip>
                                         </Box>
                                     </>
                                 ) : (
                                     <Grid container spacing={1}>
                                         {cameraList.map((cam) => (
                                             <Grid item xs={6} key={cam}>
-                                                <Box
-                                                    onClick={() => handleCameraClick(cam)}
-                                                    sx={{
-                                                        position: 'relative',
-                                                        overflow: 'hidden',
-                                                        borderRadius: 2,
-                                                        cursor: 'pointer',
-                                                        '&:hover': {
-                                                            boxShadow: 6,
-                                                            transform: 'scale(1.02)',
-                                                            transition: 'all 0.3s ease-in-out',
-                                                        },
-                                                        transition: 'all 0.3s ease-in-out',
-                                                    }}
-                                                >
+                                                <Tooltip title={`Открыть Камеру ${cam}`}>
                                                     <Box
+                                                        onClick={() => handleCameraClick(cam)}
                                                         sx={{
-                                                            backgroundColor: '#1e1e1e',
-                                                            height: 180,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            color: '#fff',
+                                                            position: 'relative',
+                                                            overflow: 'hidden',
                                                             borderRadius: 2,
-                                                            boxShadow: 3,
+                                                            cursor: cameraEnabled ? 'pointer' : 'not-allowed',
+                                                            opacity: cameraEnabled ? 1 : 0.5,
+                                                            '&:hover': cameraEnabled
+                                                                ? {
+                                                                    boxShadow: 6,
+                                                                    transform: 'scale(1.02)',
+                                                                    transition: 'all 0.3s ease-in-out',
+                                                                }
+                                                                : {},
                                                             transition: 'all 0.3s ease-in-out',
                                                         }}
                                                     >
-                                                        {`Камера ${cam}`}
+                                                        <Box
+                                                            sx={{
+                                                                backgroundColor: '#1e1e1e',
+                                                                height: 180,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                color: '#fff',
+                                                                borderRadius: 2,
+                                                                boxShadow: 3,
+                                                                transition: 'all 0.3s ease-in-out',
+                                                            }}
+                                                        >
+                                                            {`Камера ${cam}`}
+                                                        </Box>
                                                     </Box>
-                                                </Box>
+                                                </Tooltip>
                                             </Grid>
                                         ))}
                                     </Grid>
@@ -320,7 +387,7 @@ function ControlPanel() {
                                 style={{ height: 200, width: '100%', marginTop: 10 }}
                             >
                                 <TileLayer
-                                    attribution='&copy; OpenStreetMap contributors'
+                                    attribution="" // Убираем атрибуцию
                                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                                 />
                                 <Marker position={[51.505, -0.09]}>
@@ -354,7 +421,7 @@ function ControlPanel() {
                                             variant="contained"
                                             endIcon={isLoading ? <CircularProgress size={20} /> : <SendIcon />}
                                             onClick={handleSendCommand}
-                                            disabled={isLoading}
+                                            disabled={isLoading || !cameraEnabled}
                                         >
                                             {isLoading ? 'Отправка...' : 'Отправить'}
                                         </Button>
@@ -382,15 +449,70 @@ function ControlPanel() {
                                             value={port}
                                             onChange={handlePortChange}
                                             sx={{ flexGrow: 1, mr: 2 }}
+                                            displayEmpty
                                         >
+                                            <MenuItem value="">
+                                                <em>Выберите порт</em>
+                                            </MenuItem>
                                             <MenuItem value="port_1">port_1</MenuItem>
                                             <MenuItem value="port_2">port_2</MenuItem>
                                             <MenuItem value="port_3">port_3</MenuItem>
                                             <MenuItem value="port_4">port_4</MenuItem>
                                         </Select>
-                                        <Button variant="contained" color="primary">
+                                        <Button
+                                            variant="contained"
+                                            color="primary"
+                                            onClick={handleConnectPort}
+                                            disabled={portStatus === 'connecting' || portStatus === 'ready' || port === ''}
+                                        >
                                             Подключить
                                         </Button>
+                                    </Box>
+
+                                    {/* Состояния подключения */}
+                                    <Box sx={{ mt: 2 }}>
+                                        {portStatus === 'connecting' && (
+                                            <Box display="flex" alignItems="center">
+                                                <HourglassEmptyIcon color="action" sx={{ mr: 1 }} />
+                                                <Typography>Подключение...</Typography>
+                                                <Box
+                                                    sx={{
+                                                        display: 'flex',
+                                                        ml: 1,
+                                                        '& > *': {
+                                                            marginLeft: '2px',
+                                                            width: '6px',
+                                                            height: '6px',
+                                                            backgroundColor: 'secondary.main',
+                                                            borderRadius: '50%',
+                                                            animation: 'dotFlashing 1.4s infinite both',
+                                                        },
+                                                        '& > *:nth-of-type(1)': {
+                                                            animationDelay: '-0.32s',
+                                                        },
+                                                        '& > *:nth-of-type(2)': {
+                                                            animationDelay: '-0.16s',
+                                                        },
+                                                    }}
+                                                >
+                                                    <Box />
+                                                    <Box />
+                                                    <Box />
+                                                </Box>
+                                            </Box>
+                                        )}
+                                        {portStatus === 'error' && (
+                                            <Box display="flex" alignItems="center" sx={{ color: 'error.main' }}>
+                                                <ErrorIcon sx={{ mr: 1 }} />
+                                                <Typography>Ошибка подключения</Typography>
+                                            </Box>
+                                        )}
+                                        {portStatus === 'ready' && (
+                                            <Box display="flex" alignItems="center" sx={{ color: 'success.main' }}>
+                                                <CheckCircleIcon sx={{ mr: 1 }} />
+                                                <Typography>Готово к работе</Typography>
+                                            </Box>
+                                        )}
                                     </Box>
                                 </CardContent>
                             </Card>
@@ -404,7 +526,12 @@ function ControlPanel() {
                 open={snackbarOpen}
                 autoHideDuration={6000}
                 onClose={() => setSnackbarOpen(false)}
-                message="Команда успешно отправлена"
+                message={
+                    portStatus === 'error'
+                        ? 'Ошибка подключения к порту'
+                        : response
+                }
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
             />
         </Box>
     );
