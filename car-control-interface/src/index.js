@@ -1,6 +1,6 @@
-// index.js
+// src/index.js
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM from 'react-dom/client'; // Импорт из 'react-dom/client'
 import App from './App';
 import './global.css'; // Импорт глобальных стилей
 import { ReactKeycloakProvider } from '@react-keycloak/web';
@@ -26,6 +26,7 @@ root.render(
             initOptions={{
                 onLoad: 'login-required', // Требовать вход при загрузке
                 checkLoginIframe: false, // Отключить iframe проверки
+                pkceMethod: 'S256',
             }}
         >
             <App />

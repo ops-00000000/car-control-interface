@@ -1,4 +1,4 @@
-// ControlPanel.jsx
+// src/ControlPanel.jsx
 import React, { useState, useEffect } from 'react';
 import {
     Box,
@@ -34,7 +34,7 @@ import { useTheme } from '@mui/material/styles';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useWebSocketClient } from './useWebSocketClient';
-import { useKeycloak } from '@react-keycloak/web';
+import { useKeycloak } from './useKeycloak';
 
 function ControlPanel({ darkMode, toggleDarkMode }) {
     // Состояния компонента
@@ -50,11 +50,11 @@ function ControlPanel({ darkMode, toggleDarkMode }) {
 
     const theme = useTheme();
 
-    // Использование WebSocket клиента
-    const { messages, sendMessage, status: wsStatus } = useWebSocketClient('ws://127.0.0.1:9090');
-
     // Использование Keycloak
     const { keycloak } = useKeycloak();
+
+    // Использование WebSocket клиента с токеном
+    const { messages, sendMessage } = useWebSocketClient(keycloak.token);
 
     // Обработка изменения порта
     const handlePortChange = (event) => {
@@ -98,11 +98,13 @@ function ControlPanel({ darkMode, toggleDarkMode }) {
     const handleConnectPort = () => {
         if (!port) return;
         setPortStatus('connecting');
+        setCameraEnabled(false); // Отключаем камеры до завершения подключения
 
         // Имитация процесса подключения с таймаутом 2 минуты
         const connectTimeout = setTimeout(() => {
             setPortStatus('error');
             setSnackbarOpen(true);
+            setCameraEnabled(false);
         }, 120000); // 2 минуты
 
         // Имитация успешного подключения через 5 секунд

@@ -1,16 +1,17 @@
-// App.jsx
-import React, { useState, useEffect } from 'react';
+// src/App.js
+import React from 'react';
+import './App.css';
+import ControlPanel from './ControlPanel';
+import { useKeycloak } from './useKeycloak'; // Обновленный путь
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import ControlPanel from './ControlPanel';
-import { getTheme } from './theme';
-import { useKeycloak } from '@react-keycloak/web';
+import { getTheme } from './theme'; // Именованный импорт
 import CircularProgress from '@mui/material/CircularProgress';
 import Box from '@mui/material/Box';
 
 function App() {
     const { keycloak, initialized } = useKeycloak();
-    const [darkMode, setDarkMode] = useState(false);
+    const [darkMode, setDarkMode] = React.useState(false);
 
     const toggleDarkMode = () => {
         setDarkMode((prevMode) => !prevMode);

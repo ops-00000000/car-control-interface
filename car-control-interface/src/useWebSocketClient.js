@@ -1,23 +1,21 @@
-// useWebSocketClient.js
-import { useState, useEffect, useRef, useCallback } from 'react';
+// src/useWebSocketClient.js
+import { useState, useEffect, useRef } from 'react';
 
-export function useWebSocketClient(url) {
+export function useWebSocketClient(token) {
     const [messages, setMessages] = useState([]);
-    const [status, setStatus] = useState('disconnected'); // 'connecting', 'connected', 'disconnected', 'error'
     const ws = useRef(null);
-    const reconnectInterval = useRef(null);
+    const car_id = "cmMtY2FyLWNsaWVudCMwMDE="; // car id in base64
 
-    const connect = useCallback(() => {
-        ws.current = new WebSocket(url);
+    useEffect(() => {
+        if (!token) {
+            return;
+        }
+
+        const wsUrl = `wss://81.200.149.133:9000/?jwt=${token}&car_id=${car_id}`;
+        ws.current = new WebSocket(wsUrl);
 
         ws.current.onopen = () => {
             console.log('Connected to WebSocket');
-            setStatus('connected');
-            // Очистить интервал переподключения при успешном подключении
-            if (reconnectInterval.current) {
-                clearInterval(reconnectInterval.current);
-                reconnectInterval.current = null;
-            }
         };
 
         ws.current.onmessage = (event) => {
@@ -27,35 +25,18 @@ export function useWebSocketClient(url) {
 
         ws.current.onerror = (error) => {
             console.error('WebSocket Error:', error);
-            setStatus('error');
         };
 
-        ws.current.onclose = (event) => {
-            console.log('WebSocket Disconnected:', event.reason);
-            setStatus('disconnected');
-            // Попытка переподключения через 5 секунд
-            if (!reconnectInterval.current) {
-                reconnectInterval.current = setInterval(() => {
-                    console.log('Attempting to reconnect to WebSocket...');
-                    connect();
-                }, 5000);
-            }
+        ws.current.onclose = () => {
+            console.log('WebSocket Disconnected');
         };
-    }, [url]);
-
-    useEffect(() => {
-        setStatus('connecting');
-        connect();
 
         return () => {
             if (ws.current) {
                 ws.current.close();
             }
-            if (reconnectInterval.current) {
-                clearInterval(reconnectInterval.current);
-            }
         };
-    }, [connect]);
+    }, [token]);
 
     const sendMessage = (message) => {
         if (ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -65,5 +46,5 @@ export function useWebSocketClient(url) {
         }
     };
 
-    return { messages, sendMessage, status };
+    return { messages, sendMessage };
 }
